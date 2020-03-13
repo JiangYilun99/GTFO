@@ -1,0 +1,93 @@
+//
+//  BP.cpp
+//  Assignment_02
+//
+//  Created by Ilias Batyrbekov on 3/13/20.
+//
+
+#include <iostream>
+using namespace std;
+
+const int flat_frame_size = 8, cache_capacity = 5;
+
+class MyCache
+{
+    public:
+    int front, size, rear;
+    double** array; //[cache_capacity][flat_frame_size];
+};
+
+MyCache* createMyCache();
+bool isFull(MyCache* queue);
+bool isEmpty(MyCache* queue);
+void push(MyCache* queue, double* item);
+void pop(MyCache* queue);
+double* front(MyCache* queue);
+
+int main()
+{
+    
+    MyCache* cache = createMyCache();
+    
+    double someArray[8] = {1.1, 2.2, 3.3, 4.4, 5.5, 6.6, 7.7, 8.8};
+    
+    push(cache, someArray);
+    
+    cout<<"size of queue: "<<cache->size<<endl;
+    
+    double* rcvPointer = front(cache);
+    
+    for (int i = 0; i<8; i++) {
+        cout<<rcvPointer[i]<<endl;
+    }
+    
+    pop(cache);
+    cout<<"size of queue: "<<cache->size<<endl;
+    
+    
+    cout<<flat_frame_size<<endl;
+    cout<<cache_capacity<<endl;
+    
+    return 0;
+}
+
+MyCache* createMyCache()
+{
+    MyCache* queue = new MyCache();
+    queue->size = 0;
+    queue->front = 0;
+    queue->rear = (int)cache_capacity - 1;
+    queue->array = new double* [cache_capacity];
+    return queue;
+}
+  
+bool isFull(MyCache* queue)
+{ return (queue->size == cache_capacity); }
+  
+bool isEmpty(MyCache* queue)
+{ return (queue->size == 0); }
+  
+void push(MyCache* queue, double* item)
+{
+    if (isFull(queue))
+        return; //maybe send some signal
+    queue->rear = (queue->rear + 1) % cache_capacity;
+    queue->array[queue->rear] = item;
+    queue->size++;
+    cout << item << " enqueued to queue\n";
+}
+  
+void pop(MyCache* queue)
+{
+    if (isEmpty(queue))
+        return;//throw some error later
+    queue->front = (queue->front + 1) % cache_capacity;
+    queue->size--;
+}
+  
+double* front(MyCache* queue)
+{
+    if (isEmpty(queue))
+        return nullptr;
+    return queue->array[queue->front];
+}
