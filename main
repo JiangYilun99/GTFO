@@ -1,0 +1,165 @@
+//
+//  BP.cpp
+//  Assignment_02
+//
+//  Created by Ilias Batyrbekov on 3/13/20.
+//
+
+#include <iostream>
+#include <cstdlib>
+#include <unistd.h>
+#include <pthread.h>
+using namespace std;
+
+#define NUM_THREAD 2
+
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+//classes
+class MyCache
+{
+    public:
+    int front, size, rear;
+    double** array;
+};
+
+//function prototypes
+MyCache* createMyCache();
+bool isFull(MyCache* queue);
+bool isEmpty(MyCache* queue);
+void push(MyCache* queue, double* item);
+void pop(MyCache* queue);
+double* front(MyCache* queue);
+double* generate_frame_vector(int l);
+
+//global variables
+MyCache* cache = createMyCache();
+const int flat_frame_size = 8, cache_capacity = 5;
+int interval;
+
+//thread prototypes
+void* camera_thread(void *arg)
+{
+    cout<<"camera thread started"<<endl;
+    
+    sleep(1);
+    cout<<"camera sleeped 1sec"<<endl;
+    sleep(1);
+    cout<<"camera sleeped 2sec"<<endl;
+    
+    cout<<"camera thread ended"<<endl;
+    long ret = 3;
+    pthread_exit((void *)ret);
+}
+
+void* quantizer_thread(void *arg)
+{
+    cout<<endl<<"quantizer thread started"<<endl;
+    
+    sleep(2);
+    cout<<"quantizer sleeped 2sec"<<endl;
+    sleep(2);
+    cout<<"quantizer sleeped 4sec"<<endl;
+    
+    cout<<"camera thread ended"<<endl<<endl;
+    pthread_exit((void *)NULL);
+}
+
+
+int main()
+{
+    cin>>interval;
+    cout<<"interval: "<<interval<<endl;
+    
+    //input is legal
+    pthread_t threads[NUM_THREAD];
+    int threadid[NUM_THREAD];
+    int rc;
+    void* retval;
+    
+    //start camera thread
+    threadid[0] = 0;//dlya opredeleniya potokov
+    rc = pthread_create(&threads[0], NULL, camera_thread, (void*)&threadid[0]);
+    if (rc)
+    {
+        cout << "Error when creating thread!" << endl;
+        exit(-1);
+    }
+    //start quantizer thread
+    threadid[1] = 1;//dlya opredeleniya potokov
+    rc = pthread_create(&threads[1], NULL, quantizer_thread, (void*)&threadid[1]);
+    if (rc)
+    {
+        cout << "Error when creating thread!" << endl;
+        exit(-1);
+    }
+    
+    
+    //wait until camera thread has finished
+    rc = pthread_join(threads[0], &retval);
+    if (rc) {
+        cout << "Error when joining thread!" << endl;
+        exit(-1);
+    }
+    cout << "Camera" << threadid[0] << " returned pi " << retval << endl;
+    
+    //wait until quatizer thread has finished
+    rc = pthread_join(threads[0], NULL);
+    if (rc) {
+        cout << "Error when joining thread!" << endl;
+        exit(-1);
+    }
+    cout << "quatizer has returned" << endl;
+    
+    pthread_exit(NULL);
+}
+
+//fuction implementation
+MyCache* createMyCache()
+{
+    MyCache* queue = new MyCache();
+    queue->size = 0;
+    queue->front = 0;
+    queue->rear = (int)cache_capacity - 1;
+    queue->array = new double* [cache_capacity];
+    return queue;
+}
+  
+bool isFull(MyCache* queue)
+{ return (queue->size == cache_capacity); }
+  
+bool isEmpty(MyCache* queue)
+{ return (queue->size == 0); }
+  
+void push(MyCache* queue, double* item)
+{
+    if (isFull(queue))
+        return; //maybe send some signal
+    queue->rear = (queue->rear + 1) % cache_capacity;
+    queue->array[queue->rear] = item;
+    queue->size++;
+    cout << item << " enqueued to queue\n";
+}
+  
+void pop(MyCache* queue)
+{
+    if (isEmpty(queue))
+        return;//throw some error later
+    queue->front = (queue->front + 1) % cache_capacity;
+    queue->size--;
+}
+  
+double* front(MyCache* queue)
+{
+    if (isEmpty(queue))
+        return NULL;
+    return queue->array[queue->front];
+}
+
+
+//double* flat_frame = generate_frame_vector(flat_frame_size);
+//
+//for (int i = 0; i<flat_frame_size; i++)
+//{
+//    cout<<"flat frame element: "<<flat_frame[i]<<endl;
+//}
