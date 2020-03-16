@@ -40,28 +40,32 @@ int interval;
 //thread prototypes
 void* camera_thread(void *arg)
 {
+//    int id = *(int *)arg;
+//    int done = 0;  /* 0 - not done; 1 - done */
+    long ret = 2020;
     cout<<"camera thread started"<<endl;
-    
+
     sleep(1);
     cout<<"camera sleeped 1sec"<<endl;
     sleep(1);
     cout<<"camera sleeped 2sec"<<endl;
-    
+
     cout<<"camera thread ended"<<endl;
-    long ret = 3;
     pthread_exit((void *)ret);
 }
 
 void* quantizer_thread(void *arg)
 {
+//    int id = *(int *)arg;
+//    int done = 0;  /* 0 - not done; 1 - done */
     cout<<endl<<"quantizer thread started"<<endl;
-    
+
     sleep(2);
     cout<<"quantizer sleeped 2sec"<<endl;
     sleep(2);
     cout<<"quantizer sleeped 4sec"<<endl;
-    
-    cout<<"camera thread ended"<<endl<<endl;
+
+    cout<<"quantizer thread ended"<<endl;
     pthread_exit((void *)NULL);
 }
 
@@ -70,13 +74,13 @@ int main()
 {
     cin>>interval;
     cout<<"interval: "<<interval<<endl;
-    
+
     //input is legal
     pthread_t threads[NUM_THREAD];
     int threadid[NUM_THREAD];
     int rc;
     void* retval;
-    
+
     //start camera thread
     threadid[0] = 0;//dlya opredeleniya potokov
     rc = pthread_create(&threads[0], NULL, camera_thread, (void*)&threadid[0]);
@@ -93,28 +97,58 @@ int main()
         cout << "Error when creating thread!" << endl;
         exit(-1);
     }
-    
-    
+
+
     //wait until camera thread has finished
     rc = pthread_join(threads[0], &retval);
     if (rc) {
-        cout << "Error when joining thread!" << endl;
+        cout << "Error when camera joining thread!" << endl;
         exit(-1);
     }
-    cout << "Camera" << threadid[0] << " returned pi " << retval << endl;
-    
+    cout << "Camera " << threadid[0] << " returned year " << (long)retval << endl;
+
     //wait until quatizer thread has finished
-    rc = pthread_join(threads[0], NULL);
+    rc = pthread_join(threads[1], NULL);
     if (rc) {
-        cout << "Error when joining thread!" << endl;
+        cout << "Error when quatizer joining thread!" << endl;
         exit(-1);
     }
     cout << "quatizer has returned" << endl;
-    
+
     pthread_exit(NULL);
 }
 
-//fuction implementation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//chache fuctions implementation
 MyCache* createMyCache()
 {
     MyCache* queue = new MyCache();
@@ -124,13 +158,13 @@ MyCache* createMyCache()
     queue->array = new double* [cache_capacity];
     return queue;
 }
-  
+
 bool isFull(MyCache* queue)
 { return (queue->size == cache_capacity); }
-  
+
 bool isEmpty(MyCache* queue)
 { return (queue->size == 0); }
-  
+
 void push(MyCache* queue, double* item)
 {
     if (isFull(queue))
@@ -140,7 +174,7 @@ void push(MyCache* queue, double* item)
     queue->size++;
     cout << item << " enqueued to queue\n";
 }
-  
+
 void pop(MyCache* queue)
 {
     if (isEmpty(queue))
@@ -148,7 +182,7 @@ void pop(MyCache* queue)
     queue->front = (queue->front + 1) % cache_capacity;
     queue->size--;
 }
-  
+
 double* front(MyCache* queue)
 {
     if (isEmpty(queue))
