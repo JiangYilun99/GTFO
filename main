@@ -13,7 +13,7 @@ using namespace std;
 
 #define NUM_THREAD 2
 
-static pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER; //named myMutex to remove ambiguity in MacOS X
+static pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER; //named myMutex to remove ambiguity in MacOS
 
 //classes
 class MyCache
@@ -39,46 +39,34 @@ int flat_frame_size = 8, cache_capacity = 5, interval, num_max_retries = 10;
 //thread prototypes
 void* camera_thread(void *arg)
 {
-//    int id = *(int *)arg;
-    bool isFinished = false;
-    long ret = 2020;
+    bool frameIsNULL = false;
     
     cout<<"camera thread started"<<endl;
     
-    while(!isFinished) //exit only if NULL frame is generated
+    while(!frameIsNULL) //exit only if NULL frame is generated
     {
-        while (isFull(cache)) { //sleep while cache is full
-            sleep(interval); // no need to use mutex as we do not modify the cache variable
-//            cout<<"camera sleeped interval seconds"<<endl;
-        }
+        while (isFull(cache)) //sleep while cache is full
+            sleep(interval);  // no need to use mutex as we do not modify the cache variable
+        
         //generate flat frame
         double* flat_frame = generate_frame_vector(flat_frame_size);
 
         if (flat_frame == NULL) //exit
-            isFinished = true;
+            frameIsNULL = true;
         else{                   //load the frame
-            pthread_mutex_lock (&myMutex);
-            cout<<"about to push"<<endl;
+            pthread_mutex_lock (&myMutex); //mute while adding new frame into cache
+            cout<<"about to push frame"<<endl;
             push(cache, flat_frame);  //mute while adding new frame into cache
             cout<<"frame pushed"<<endl;
             pthread_mutex_unlock(&myMutex);
         }
-            
-        
-//        //print the flat file
-//        cout<<"flat frame elements: ";
-//        for (int i = 0; i<flat_frame_size; i++)
-//            cout<<flat_frame[i]<<" ";
-//        cout<<endl;
     }
     //finally exit
-    pthread_exit((void *)ret);
+    pthread_exit((void *)NULL);
 }
 
 void* quantizer_thread(void *arg)
 {
-//    int id = *(int *)arg;
-    bool isFinished = false;
     cout<<endl<<"quantizer thread started"<<endl;
     
     while (1) //exit only in special case of waiting for too long
@@ -94,7 +82,7 @@ void* quantizer_thread(void *arg)
         pthread_mutex_lock (&myMutex);
         cout<<"about to retrieve frame"<<endl;
         double* frame_to_quantize = front(cache);
-//        cout<<"pointer value is "<< frame_to_quantize <<endl;
+        cout<<"pointer value is "<< frame_to_quantize <<endl;
         for (int i = 0; i<flat_frame_size; i++)
             (frame_to_quantize[i] > 0.5) ? (frame_to_quantize[i] = 1.0) : (frame_to_quantize[i] = 0.0);
         
@@ -108,8 +96,6 @@ void* quantizer_thread(void *arg)
         
         sleep(3); //simulate quantization
     }
-    cout<<"quantizer thread ended"<<endl;
-    pthread_exit((void *)NULL);
 }
 
 
@@ -122,7 +108,7 @@ int main()
     pthread_t threads[NUM_THREAD];
     int threadid[NUM_THREAD];
     int rc;
-    void* retval;
+//    void* retval;
 
     //start camera thread
     threadid[0] = 0;//dlya opredeleniya potokov
@@ -143,20 +129,23 @@ int main()
 
 
     //wait until camera thread has finished
-    rc = pthread_join(threads[0], &retval);
+    rc = pthread_join(threads[0], NULL);
     if (rc) {
         cout << "Error when camera joining thread!" << endl;
         exit(-1);
+    }else{
+        cout << "camera thread returned"<< endl;
     }
-    cout << "Camera " << threadid[0] << " returned year " << (long)retval << endl;
 
     //wait until quatizer thread has finished
     rc = pthread_join(threads[1], NULL);
     if (rc) {
         cout << "Error when quatizer joining thread!" << endl;
         exit(-1);
+    }else{
+        cout << "quatizer has returned" << endl;
     }
-    cout << "quatizer has returned" << endl;
+    
 
     pthread_exit(NULL);
 }
