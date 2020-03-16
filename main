@@ -13,7 +13,7 @@ using namespace std;
 
 #define NUM_THREAD 2
 
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER; //named myMutex to remove ambiguity in MacOS X
 
 //classes
 class MyCache
@@ -34,37 +34,80 @@ double* generate_frame_vector(int l);
 
 //global variables
 MyCache* cache = createMyCache();
-const int flat_frame_size = 8, cache_capacity = 5;
-int interval;
+int flat_frame_size = 8, cache_capacity = 5, interval, num_max_retries = 10;
 
 //thread prototypes
 void* camera_thread(void *arg)
 {
 //    int id = *(int *)arg;
-//    int done = 0;  /* 0 - not done; 1 - done */
+    bool isFinished = false;
     long ret = 2020;
+    
     cout<<"camera thread started"<<endl;
+    
+    while(!isFinished) //exit only if NULL frame is generated
+    {
+        while (isFull(cache)) { //sleep while cache is full
+            sleep(interval); // no need to use mutex as we do not modify the cache variable
+//            cout<<"camera sleeped interval seconds"<<endl;
+        }
+        //generate flat frame
+        double* flat_frame = generate_frame_vector(flat_frame_size);
 
-    sleep(1);
-    cout<<"camera sleeped 1sec"<<endl;
-    sleep(1);
-    cout<<"camera sleeped 2sec"<<endl;
-
-    cout<<"camera thread ended"<<endl;
+        if (flat_frame == NULL) //exit
+            isFinished = true;
+        else{                   //load the frame
+            pthread_mutex_lock (&myMutex);
+            cout<<"about to push"<<endl;
+            push(cache, flat_frame);  //mute while adding new frame into cache
+            cout<<"frame pushed"<<endl;
+            pthread_mutex_unlock(&myMutex);
+        }
+            
+        
+//        //print the flat file
+//        cout<<"flat frame elements: ";
+//        for (int i = 0; i<flat_frame_size; i++)
+//            cout<<flat_frame[i]<<" ";
+//        cout<<endl;
+    }
+    //finally exit
     pthread_exit((void *)ret);
 }
 
 void* quantizer_thread(void *arg)
 {
 //    int id = *(int *)arg;
-//    int done = 0;  /* 0 - not done; 1 - done */
+    bool isFinished = false;
     cout<<endl<<"quantizer thread started"<<endl;
-
-    sleep(2);
-    cout<<"quantizer sleeped 2sec"<<endl;
-    sleep(2);
-    cout<<"quantizer sleeped 4sec"<<endl;
-
+    
+    while (1) //exit only in special case of waiting for too long
+    {
+        int num_tries = 0;
+        while (isEmpty(cache))
+        {
+            if (++num_tries > num_max_retries) //stop if waited too long
+                pthread_exit((void *)NULL);
+            sleep(1);//wait for new frames
+        }
+        
+        pthread_mutex_lock (&myMutex);
+        cout<<"about to retrieve frame"<<endl;
+        double* frame_to_quantize = front(cache);
+//        cout<<"pointer value is "<< frame_to_quantize <<endl;
+        for (int i = 0; i<flat_frame_size; i++)
+            (frame_to_quantize[i] > 0.5) ? (frame_to_quantize[i] = 1.0) : (frame_to_quantize[i] = 0.0);
+        
+        //print
+        for (int i = 0; i<flat_frame_size; i++)
+            cout<<frame_to_quantize[i]<<" ";
+        cout<<endl;
+        
+        pop(cache);//remove last frame
+        pthread_mutex_unlock(&myMutex);
+        
+        sleep(3); //simulate quantization
+    }
     cout<<"quantizer thread ended"<<endl;
     pthread_exit((void *)NULL);
 }
@@ -154,7 +197,7 @@ MyCache* createMyCache()
     MyCache* queue = new MyCache();
     queue->size = 0;
     queue->front = 0;
-    queue->rear = (int)cache_capacity - 1;
+    queue->rear = cache_capacity - 1;
     queue->array = new double* [cache_capacity];
     return queue;
 }
@@ -172,7 +215,6 @@ void push(MyCache* queue, double* item)
     queue->rear = (queue->rear + 1) % cache_capacity;
     queue->array[queue->rear] = item;
     queue->size++;
-    cout << item << " enqueued to queue\n";
 }
 
 void pop(MyCache* queue)
@@ -190,10 +232,3 @@ double* front(MyCache* queue)
     return queue->array[queue->front];
 }
 
-
-//double* flat_frame = generate_frame_vector(flat_frame_size);
-//
-//for (int i = 0; i<flat_frame_size; i++)
-//{
-//    cout<<"flat frame element: "<<flat_frame[i]<<endl;
-//}
