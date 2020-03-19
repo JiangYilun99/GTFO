@@ -11,7 +11,7 @@
 #include <pthread.h>
 using namespace std;
 
-#define NUM_THREAD 2
+#define NUM_THREAD 3
 
 static pthread_mutex_t myMutex = PTHREAD_MUTEX_INITIALIZER; //named myMutex to remove ambiguity in MacOS
 
@@ -55,9 +55,9 @@ void* camera_thread(void *arg)
             frameIsNULL = true;
         else{                   //load the frame
             pthread_mutex_lock (&myMutex); //mute while adding new frame into cache
-            cout<<"about to push frame"<<endl;
+//            cout<<"about to push frame"<<endl;
             push(cache, flat_frame);  //mute while adding new frame into cache
-            cout<<"frame pushed"<<endl;
+//            cout<<"frame pushed"<<endl;
             pthread_mutex_unlock(&myMutex);
         }
     }
@@ -80,9 +80,9 @@ void* quantizer_thread(void *arg)
         }
         
         pthread_mutex_lock (&myMutex);
-        cout<<"about to retrieve frame"<<endl;
+//        cout<<"about to retrieve frame"<<endl;
         double* frame_to_quantize = front(cache);
-        cout<<"pointer value is "<< frame_to_quantize <<endl;
+//        cout<<"pointer value is "<< frame_to_quantize <<endl;
         for (int i = 0; i<flat_frame_size; i++)
             (frame_to_quantize[i] > 0.5) ? (frame_to_quantize[i] = 1.0) : (frame_to_quantize[i] = 0.0);
         
@@ -126,6 +126,16 @@ int main()
         cout << "Error when creating thread!" << endl;
         exit(-1);
     }
+    
+    //start SECOND quantizer thread &&&&&&&&&&&&&&&&&&&&&&&&
+    threadid[2] = 2;//dlya opredeleniya potokov
+    rc = pthread_create(&threads[2], NULL, quantizer_thread, (void*)&threadid[1]);
+    if (rc)
+    {
+        cout << "Error when creating thread!" << endl;
+        exit(-1);
+    }
+    cout<<"thread 02 is success"<<endl;
 
 
     //wait until camera thread has finished
@@ -143,9 +153,16 @@ int main()
         cout << "Error when quatizer joining thread!" << endl;
         exit(-1);
     }else{
-        cout << "quatizer has returned" << endl;
+        cout << "quatizer 1 has returned" << endl;
     }
     
+    rc = pthread_join(threads[2], NULL);
+    if (rc) {
+        cout << "Error when quatizer joining thread!" << endl;
+        exit(-1);
+    }else{
+        cout << "quatizer 2 has returned" << endl;
+    }
 
     pthread_exit(NULL);
 }
