@@ -1,8 +1,7 @@
 //
 //  BP.cpp
 //  Assignment_02
-// out == front
-// in == (queue->rear + 1) % cache_capacity;
+//
 //  Created by Ilias Batyrbekov on 3/13/20.
 //
 
@@ -12,81 +11,80 @@
 #include <pthread.h>
 using namespace std;
 
-#define NUM_THREAD 3
+pthread_mutex_t a_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t q_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static pthread_mutex_t a_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t q_mutex = PTHREAD_MUTEX_INITIALIZER; //only for quantizers
-
-//classes
-class MyCache
-{
-    public:
-    int front, size, rear;
-    double** array;
-};
+const int flat_frame_size = 8, cache_capacity = 5,  num_max_retries = 3;
+int cache_size = 0, interval; // number of empty slots
+int idx_for_push = 0; // index of entry accessed by camera thread
+int idx_for_pop = 0; // index of entry accessed by quantizer thread
+double* cache[cache_capacity];
 
 //function prototypes
-MyCache* createMyCache();
-bool isFull(MyCache* queue);
-bool isEmpty(MyCache* queue);
-void push(MyCache* queue, double* item);
-void pop(MyCache* queue);
-double* front(MyCache* queue);
 double* generate_frame_vector(int l);
-bool is_number(const string& s);
+bool is_number(string s);
 
-//global variables
-MyCache* cache = createMyCache();
-int flat_frame_size = 8, cache_capacity = 5, interval, num_max_retries = 3;
-
-//thread prototypes
-void* camera_thread(void *arg)
+void* camera_method(void *arg)
 {
-    bool frame_is_NULL = false;
-    while(!frame_is_NULL) //exit only if NULL frame is generated
+//    cout<<"camera thread started"<<endl;
+    while(1) //exit only if NULL frame is generated
     {
-        while (isFull(cache)) //size of cahce can only be increased by camera, so
-            sleep(interval);  //no mutex, as no modification of cache
-        bool requiresMutex = (cache->front == (cache->rear + 1) % cache_capacity);
-        if (requiresMutex) pthread_mutex_lock(&a_mutex); // improve concurrency by only locking mutex if camera and quantizer are working on the same frame
+//        cout<<"camera running"<<endl;
+        while (cache_size>=cache_capacity) //sleep while cache is full
+            sleep(interval);
+        
+        bool mutex_needed = (idx_for_pop == idx_for_push);
+        if (mutex_needed)
+            pthread_mutex_lock(&a_mutex); //lock a_mutex only if same frame idx is used
+        
         //generate flat frame
         double* flat_frame = generate_frame_vector(flat_frame_size);
-
         if (flat_frame == NULL) //exit
-            frame_is_NULL = true;
-        else{                   //load the frame
-            pthread_mutex_lock (&a_mutex); //mute while adding new frame into cache
-            push(cache, flat_frame);  //mute while adding new frame into cache
+        {
+            if (mutex_needed) pthread_mutex_unlock(&a_mutex);
+            break;
+        }
+        else{
+            //load the frame
+//            cout<<"about to push frame"<<endl;
+            cache[idx_for_push] = flat_frame; //mute while adding new frame into cache
+            idx_for_push = (idx_for_push+1) % cache_capacity;
+            cache_size++;
+//            cout<<"frame pushed"<<endl;
             pthread_mutex_unlock(&a_mutex);
         }
     }
     //finally exit
-    pthread_exit((void *)NULL);
+    pthread_exit(NULL);
 }
 
-void* quantizer_thread(void *arg)
+void* quantizer_method(void *arg)
 {
+//    cout<<endl<<"quantizer thread started"<<endl;
     int num_tries = 0;
-    while (num_tries++ < num_max_retries) //stop if waited too long
+    while (num_tries++ < num_max_retries) //exit waiting for too long
     {
-//        cout<<"int the quant"<<endl;
-        if(!isEmpty(cache))
-        {
+        if (cache_size > 0) { //if the cache is not empty
             num_tries = 0;
-            bool cam_mutex_needed = (cache->front == (cache->rear + 1) % cache_capacity);
-            if (cam_mutex_needed) pthread_mutex_lock(&a_mutex);
+            bool mutex_needed = (idx_for_pop == idx_for_push);
+            if (mutex_needed)
+                pthread_mutex_lock(&a_mutex);
             pthread_mutex_lock(&q_mutex);
-            double* frame_to_quantize = front(cache);
             
+//            cout<<"about to retrieve frame"<<endl;
+            double* frame_to_quantize = cache[idx_for_pop];
+            idx_for_pop = (idx_for_pop + 1) % cache_capacity;
+            cache_size--;
+//            cout<<"pointer value is "<< frame_to_quantize <<endl;
             // quantization
             for (int i = 0; i<flat_frame_size; i++)
                 frame_to_quantize[i] > 0.5 ? cout << "1.0 " : cout << "0.0 ";
             cout<<endl;
-            
-            pop(cache);
+            //unlock
             pthread_mutex_unlock(&q_mutex);
-            if (cam_mutex_needed) pthread_mutex_unlock(&a_mutex);
-            sleep(3);
+            if (mutex_needed)
+                pthread_mutex_unlock(&a_mutex);
+            sleep(3);//simulate quantization
         }
         else
             sleep(1);
@@ -98,120 +96,66 @@ void* quantizer_thread(void *arg)
 int main(int argc, char** argv)
 {
 //    if (argc != 2) {
-//        cout << "Error: Insufficient or Exceeding parameters error: '1' is not a valid command." << endl;
+//        cout << "Error: Insufficient or Exceeding parameters" << endl;
 //        return 0;
 //    }
 //    else if (!is_number(argv[1])) {
 //        cout << "Error: Parameter should be an integer." << endl;
 //        return 0;
 //    }
+//    interval = stoi(argv[1]);
+
+    
+    interval = 1; //delete later&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
     //input is legal
-    cin>>interval;//&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&remove later&&&&&&&&&&&&&&&&&&&&&&&&&&&
-    pthread_t threads[NUM_THREAD];
-    int threadid[NUM_THREAD];
-    int rc;
-    
+    pthread_mutex_init(&a_mutex, NULL);
+    pthread_mutex_init(&q_mutex, NULL);
+    pthread_t threads[3];
+//    void* retval;
+
     //start camera thread
-    threadid[0] = 0;//dlya opredeleniya potokov
-    rc = pthread_create(&threads[0], NULL, camera_thread, (void*)&threadid[0]);
-    if (rc)
-    {
+    if ( pthread_create(&threads[0], NULL, camera_method, NULL) ){
         cout << "Error when creating thread!" << endl;
         exit(-1);
     }
-    //start quantizer thread
-    threadid[1] = 1;//dlya opredeleniya potokov
-    rc = pthread_create(&threads[1], NULL, quantizer_thread, (void*)&threadid[1]);
-    if (rc)
-    {
-        cout << "Error when creating thread!" << endl;
+    //start quantizer_01 thread
+    if (pthread_create(&threads[1], NULL, quantizer_method, NULL)){
+        cout << "Error when creating quantizer_01 thread!" << endl;
         exit(-1);
     }
-    
-    //start SECOND quantizer thread &&&&&&&&&&&&&&&&&&&&&&&&
-    threadid[2] = 2;//dlya opredeleniya potokov
-    rc = pthread_create(&threads[2], NULL, quantizer_thread, (void*)&threadid[1]);
-    if (rc)
-    {
-        cout << "Error when creating thread!" << endl;
+    //start quantizer_02 thread
+    if (pthread_create(&threads[2], NULL, quantizer_method, NULL)){
+        cout << "Error when creating quantizer_02 thread!" << endl;
         exit(-1);
     }
 
 
     //wait until camera thread has finished
-    rc = pthread_join(threads[0], NULL);
-    if (rc) {
+    if ( pthread_join(threads[0], NULL) ) {
         cout << "Error when camera joining thread!" << endl;
         exit(-1);
-    }else{
+    }else
         cout << "camera thread returned"<< endl;
-    }
-
-    //wait until quatizer thread has finished
-    rc = pthread_join(threads[1], NULL);
-    if (rc) {
-        cout << "Error when quatizer joining thread!" << endl;
+    //wait until quatizer_01 thread has finished
+    if ( pthread_join(threads[1], NULL) ) {
+        cout << "Error when quatizer_01 joining thread!" << endl;
         exit(-1);
-    }else{
-        cout << "quatizer 1 has returned" << endl;
-    }
-    
-    rc = pthread_join(threads[2], NULL);
-    if (rc) {
-        cout << "Error when quatizer joining thread!" << endl;
+    }else
+        cout << "quatizer_01 has returned" << endl;
+    //wait until quatizer_02 thread has finished
+    if ( pthread_join(threads[2], NULL) ) {
+        cout << "Error when quatizer_02 joining thread!" << endl;
         exit(-1);
-    }else{
-        cout << "quatizer 2 has returned" << endl;
-    }
-
+    }else
+        cout << "quatizer_02 has returned" << endl;
+    //finally exit
     pthread_exit(NULL);
 }
 
-bool is_number(const string& s)
+bool is_number(string s)
 {
     string::const_iterator it = s.begin();
     while (it != s.end() && isdigit(*it)) ++it;
     return !s.empty() && it == s.end();
 }
-
-//chache fuctions implementation
-MyCache* createMyCache()
-{
-    MyCache* queue = new MyCache();
-    queue->size = 0;
-    queue->front = 0;
-    queue->rear = cache_capacity - 1;
-    queue->array = new double* [cache_capacity];
-    return queue;
-}
-
-bool isFull(MyCache* queue)
-{ return (queue->size == cache_capacity); }
-
-bool isEmpty(MyCache* queue)
-{ return (queue->size == 0); }
-
-void push(MyCache* queue, double* item)
-{
-    if (isFull(queue))
-        return; //maybe send some signal
-    queue->rear = (queue->rear + 1) % cache_capacity;
-    queue->array[queue->rear] = item; //rear == in
-    queue->size++;
-}
-
-void pop(MyCache* queue)
-{
-    if (isEmpty(queue))
-        return;//to detect error
-    queue->front = (queue->front + 1) % cache_capacity;
-    queue->size--;
-}
-
-double* front(MyCache* queue)
-{
-    if (isEmpty(queue))
-        return NULL;
-    return queue->array[queue->front];
-}
-
