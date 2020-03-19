@@ -33,24 +33,22 @@ void* camera_method(void *arg)
         while (cache_size>=cache_capacity) //sleep while cache is full
             sleep(interval);
         
-        bool mutex_needed = (idx_for_pop == idx_for_push);
-        if (mutex_needed)
-            pthread_mutex_lock(&a_mutex); //lock a_mutex only if same frame idx is used
+        bool lock_needed = (idx_for_pop == idx_for_push);
+        if (lock_needed)                 // lock a_mutex only if same frame idx
+            pthread_mutex_lock(&a_mutex); // is used by camera and quantizers
         
         //generate flat frame
         double* flat_frame = generate_frame_vector(flat_frame_size);
         if (flat_frame == NULL) //exit
         {
-            if (mutex_needed) pthread_mutex_unlock(&a_mutex);
+            if (lock_needed) pthread_mutex_unlock(&a_mutex);
             break;
         }
         else{
             //load the frame
-//            cout<<"about to push frame"<<endl;
             cache[idx_for_push] = flat_frame; //mute while adding new frame into cache
             idx_for_push = (idx_for_push+1) % cache_capacity;
             cache_size++;
-//            cout<<"frame pushed"<<endl;
             pthread_mutex_unlock(&a_mutex);
         }
     }
@@ -66,23 +64,21 @@ void* quantizer_method(void *arg)
     {
         if (cache_size > 0) { //if the cache is not empty
             num_tries = 0;
-            bool mutex_needed = (idx_for_pop == idx_for_push);
-            if (mutex_needed)
+            bool lock_needed = (idx_for_pop == idx_for_push);
+            if (lock_needed)
                 pthread_mutex_lock(&a_mutex);
             pthread_mutex_lock(&q_mutex);
-            
-//            cout<<"about to retrieve frame"<<endl;
+            //push frame into cache
             double* frame_to_quantize = cache[idx_for_pop];
             idx_for_pop = (idx_for_pop + 1) % cache_capacity;
             cache_size--;
-//            cout<<"pointer value is "<< frame_to_quantize <<endl;
             // quantization
             for (int i = 0; i<flat_frame_size; i++)
                 frame_to_quantize[i] > 0.5 ? cout << "1.0 " : cout << "0.0 ";
             cout<<endl;
             //unlock
             pthread_mutex_unlock(&q_mutex);
-            if (mutex_needed)
+            if (lock_needed)
                 pthread_mutex_unlock(&a_mutex);
             sleep(3);//simulate quantization
         }
@@ -95,24 +91,20 @@ void* quantizer_method(void *arg)
 
 int main(int argc, char** argv)
 {
-//    if (argc != 2) {
-//        cout << "Error: Insufficient or Exceeding parameters" << endl;
-//        return 0;
-//    }
-//    else if (!is_number(argv[1])) {
-//        cout << "Error: Parameter should be an integer." << endl;
-//        return 0;
-//    }
-//    interval = stoi(argv[1]);
-
+    if (argc != 2) {
+        cout << "Error: Insufficient or Exceeding parameters" << endl;
+        return 0;
+    }
+    else if (!is_number(argv[1])) {
+        cout << "Error: Parameter should be an integer." << endl;
+        return 0;
+    }
+    interval = stoi(argv[1]);
     
-    interval = 1; //delete later&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-
     //input is legal
     pthread_mutex_init(&a_mutex, NULL);
     pthread_mutex_init(&q_mutex, NULL);
     pthread_t threads[3];
-//    void* retval;
 
     //start camera thread
     if ( pthread_create(&threads[0], NULL, camera_method, NULL) ){
@@ -130,25 +122,21 @@ int main(int argc, char** argv)
         exit(-1);
     }
 
-
     //wait until camera thread has finished
     if ( pthread_join(threads[0], NULL) ) {
         cout << "Error when camera joining thread!" << endl;
         exit(-1);
-    }else
-        cout << "camera thread returned"<< endl;
+    }
     //wait until quatizer_01 thread has finished
     if ( pthread_join(threads[1], NULL) ) {
         cout << "Error when quatizer_01 joining thread!" << endl;
         exit(-1);
-    }else
-        cout << "quatizer_01 has returned" << endl;
+    }
     //wait until quatizer_02 thread has finished
     if ( pthread_join(threads[2], NULL) ) {
         cout << "Error when quatizer_02 joining thread!" << endl;
         exit(-1);
-    }else
-        cout << "quatizer_02 has returned" << endl;
+    }
     //finally exit
     pthread_exit(NULL);
 }
