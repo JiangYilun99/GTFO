@@ -38,6 +38,7 @@ bool is_number(const string& s);
 //global variables
 MyCache* cache = createMyCache();
 int flat_frame_size = 8, cache_capacity = 5, interval, num_max_retries = 3;
+int idx_to_be_poped = 0, idx_to_be_pushed = 0;
 
 //thread prototypes
 void* camera_thread(void *arg)
@@ -45,19 +46,21 @@ void* camera_thread(void *arg)
     bool frame_is_NULL = false;
     while(!frame_is_NULL) //exit only if NULL frame is generated
     {
+        cout<<"camera works"<<endl;
         while (isFull(cache)) //size of cahce can only be increased by camera, so
             sleep(interval);  //no mutex, as no modification of cache
-        bool requiresMutex = (cache->front == (cache->rear + 1) % cache_capacity);
-        if (requiresMutex) pthread_mutex_lock(&a_mutex); // improve concurrency by only locking mutex if camera and quantizer are working on the same frame
+        
+        bool cam_mutex_needed = (1);
+        if (cam_mutex_needed) pthread_mutex_lock(&a_mutex); // improve concurrency by only locking mutex if camera and quantizer are working on the same frame
         //generate flat frame
         double* flat_frame = generate_frame_vector(flat_frame_size);
-
+        cout<<flat_frame<<endl;
         if (flat_frame == NULL) //exit
             frame_is_NULL = true;
         else{                   //load the frame
-            pthread_mutex_lock (&a_mutex); //mute while adding new frame into cache
             push(cache, flat_frame);  //mute while adding new frame into cache
-            pthread_mutex_unlock(&a_mutex);
+            if (cam_mutex_needed)
+                pthread_mutex_unlock(&a_mutex);
         }
     }
     //finally exit
@@ -69,12 +72,13 @@ void* quantizer_thread(void *arg)
     int num_tries = 0;
     while (num_tries++ < num_max_retries) //stop if waited too long
     {
-//        cout<<"int the quant"<<endl;
+        cout<<"int the quant"<<endl;
         if(!isEmpty(cache))
         {
             num_tries = 0;
-            bool cam_mutex_needed = (cache->front == (cache->rear + 1) % cache_capacity);
-            if (cam_mutex_needed) pthread_mutex_lock(&a_mutex);
+            bool cam_mutex_needed = (1);
+            if (cam_mutex_needed)
+                pthread_mutex_lock(&a_mutex);
             pthread_mutex_lock(&q_mutex);
             double* frame_to_quantize = front(cache);
             
@@ -85,7 +89,8 @@ void* quantizer_thread(void *arg)
             
             pop(cache);
             pthread_mutex_unlock(&q_mutex);
-            if (cam_mutex_needed) pthread_mutex_unlock(&a_mutex);
+            if (cam_mutex_needed)
+                pthread_mutex_unlock(&a_mutex);
             sleep(3);
         }
         else
@@ -214,4 +219,3 @@ double* front(MyCache* queue)
         return NULL;
     return queue->array[queue->front];
 }
-
