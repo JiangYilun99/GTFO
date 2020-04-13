@@ -9,10 +9,13 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <pthread.h>
+#include <semaphore.h>
 using namespace std;
 
 pthread_mutex_t a_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t q_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+sem_t can_add;
 
 const int flat_frame_size = 8, cache_capacity = 5,  num_max_retries = 3;
 int cache_size = 0, interval; // number of empty slots
@@ -23,15 +26,30 @@ double* cache[cache_capacity];
 //function prototypes
 double* generate_frame_vector(int l);
 bool is_number(string s);
+bool is_debugging = true;
 
 void* camera_method(void *arg)
 {
-//    cout<<"camera thread started"<<endl;
+    if (is_debugging) {
+        cout<<"camera thread started"<<endl;
+    }
     while(1) //exit only if NULL frame is generated
     {
-//        cout<<"camera running"<<endl;
+        if (is_debugging) {
+            cout<<"camera running"<<endl;
+        }
         while (cache_size>=cache_capacity) //sleep while cache is full
             sleep(interval);
+        
+        if (is_debugging) {
+            cout<<"camera before critical section"<<endl;
+        }
+        sem_wait(&can_add);
+        
+        if (is_debugging) {
+            cout<<"value of the semaphore "<<can_add<<endl;
+            cout<<"camera in critical section"<<endl;
+        }
         
         bool lock_needed = (idx_for_pop == idx_for_push);
         if (lock_needed)                 // lock a_mutex only if same frame idx
@@ -58,11 +76,14 @@ void* camera_method(void *arg)
 
 void* quantizer_method(void *arg)
 {
-//    cout<<endl<<"quantizer thread started"<<endl;
+    if (is_debugging) {
+        cout<<endl<<"quantizer thread started"<<endl;
+    }
     int num_tries = 0;
     while (num_tries++ < num_max_retries) //exit waiting for too long
     {
         if (cache_size > 0) { //if the cache is not empty
+            
             num_tries = 0;
             bool lock_needed = (idx_for_pop == idx_for_push);
             if (lock_needed)
@@ -104,11 +125,13 @@ int main(int argc, char** argv)
     //input is legal
     pthread_mutex_init(&a_mutex, NULL);
     pthread_mutex_init(&q_mutex, NULL);
+    int x = sem_init(&can_add, 0, 0);
     pthread_t threads[3];
 
     //start camera thread
     if ( pthread_create(&threads[0], NULL, camera_method, NULL) ){
         cout << "Error when creating thread!" << endl;
+        cout<<"the sem init returned: "<< x<<endl;
         exit(-1);
     }
     //start quantizer_01 thread
