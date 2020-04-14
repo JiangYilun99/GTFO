@@ -38,16 +38,31 @@ void* camera_method(void *arg)
         if (is_debugging) {
             cout<<"camera running"<<endl;
         }
-        while (cache_size>=cache_capacity) //sleep while cache is full
-            sleep(interval);
-        
+//        while (cache_size>=cache_capacity) //sleep while cache is full
+//            sleep(interval);
         if (is_debugging) {
             cout<<"camera before critical section"<<endl;
         }
-        sem_wait(&can_add);
+        while (cache_size>=cache_capacity) //sleep while cache is full
+        {
+            if (is_debugging) {
+                cout<<"cache is full, camera waiting"<<endl;
+            }
+            
+            sem_wait(&can_add);
+            if (is_debugging) {
+                int temp;
+                sem_getvalue(&can_add, &temp);
+                cout<<"semaphore value + 100 after sem wait is "<< temp+100 <<endl<<endl<<endl<<endl;
+            }
+            
+            if (is_debugging) {
+                cout<<"camera finished waiting"<<endl;
+            }
+        }
         
         if (is_debugging) {
-            cout<<"value of the semaphore "<<can_add<<endl;
+//            cout<<"value of the semaphore "<<can_add<<endl;
             cout<<"camera in critical section"<<endl;
         }
         
@@ -98,6 +113,21 @@ void* quantizer_method(void *arg)
                 frame_to_quantize[i] > 0.5 ? cout << "1.0 " : cout << "0.0 ";
             cout<<endl;
             //unlock
+            if (is_debugging) {
+                cout<<"using sem post"<<endl;
+            }
+            sem_post(&can_add);
+            
+            if (is_debugging) {
+                int temp;
+                sem_getvalue(&can_add, &temp);
+                cout<<"semaphore value after posting is"<< temp <<endl;
+            }
+            
+            if (cache_size == cache_capacity - 1) {
+                
+            }
+            
             pthread_mutex_unlock(&q_mutex);
             if (lock_needed)
                 pthread_mutex_unlock(&a_mutex);
@@ -125,13 +155,12 @@ int main(int argc, char** argv)
     //input is legal
     pthread_mutex_init(&a_mutex, NULL);
     pthread_mutex_init(&q_mutex, NULL);
-    int x = sem_init(&can_add, 0, 0);
+    sem_init(&can_add, 0, 0);
     pthread_t threads[3];
 
     //start camera thread
     if ( pthread_create(&threads[0], NULL, camera_method, NULL) ){
         cout << "Error when creating thread!" << endl;
-        cout<<"the sem init returned: "<< x<<endl;
         exit(-1);
     }
     //start quantizer_01 thread
