@@ -10,12 +10,14 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <semaphore.h>
+#include <sys/types.h>
 using namespace std;
 
 pthread_mutex_t a_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t q_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 sem_t can_add;
+sem_t can_take;
 
 const int flat_frame_size = 8, cache_capacity = 5,  num_max_retries = 3;
 int cache_size = 0, interval; // number of empty slots
@@ -26,7 +28,12 @@ double* cache[cache_capacity];
 //function prototypes
 double* generate_frame_vector(int l);
 bool is_number(string s);
-bool is_debugging = true;
+bool is_debugging = 1;
+bool is_cam_waiting = 0;
+bool is_cam_exited = 0;
+int num_of_cam_exec = 0;
+
+//bool is_variant_A = 1;
 
 void* camera_method(void *arg)
 {
@@ -36,34 +43,23 @@ void* camera_method(void *arg)
     while(1) //exit only if NULL frame is generated
     {
         if (is_debugging) {
-            cout<<"camera running"<<endl;
+            printf("camera started running, num of executions: %d \n", ++num_of_cam_exec);
         }
-//        while (cache_size>=cache_capacity) //sleep while cache is full
-//            sleep(interval);
-        if (is_debugging) {
-            cout<<"camera before critical section"<<endl;
-        }
-        while (cache_size>=cache_capacity) //sleep while cache is full
-        {
-            if (is_debugging) {
-                cout<<"cache is full, camera waiting"<<endl;
+            if(cache_size>=cache_capacity) //sleep while cache is full
+            {
+                if (is_debugging) {
+                    printf("cache is full, camera waiting \n");
+                }
+                is_cam_waiting = 1;
+                sem_wait(&can_add);
+                is_cam_waiting = 0;
+                if (is_debugging) {
+                    printf("camera finished waiting \n");
+                }
             }
-            
-            sem_wait(&can_add);
-            if (is_debugging) {
-                int temp;
-                sem_getvalue(&can_add, &temp);
-                cout<<"semaphore value + 100 after sem wait is "<< temp+100 <<endl<<endl<<endl<<endl;
-            }
-            
-            if (is_debugging) {
-                cout<<"camera finished waiting"<<endl;
-            }
-        }
         
         if (is_debugging) {
-//            cout<<"value of the semaphore "<<can_add<<endl;
-            cout<<"camera in critical section"<<endl;
+            printf("camera in critical section \n");
         }
         
         bool lock_needed = (idx_for_pop == idx_for_push);
@@ -74,69 +70,93 @@ void* camera_method(void *arg)
         double* flat_frame = generate_frame_vector(flat_frame_size);
         if (flat_frame == NULL) //exit
         {
-            if (lock_needed) pthread_mutex_unlock(&a_mutex);
+            if (lock_needed)
+                pthread_mutex_unlock(&a_mutex);
+            is_cam_exited = 1;
+            cout<<"\n\n ********************Camera Exited***************** \n\n"<<endl;
             break;
         }
-        else{
-            //load the frame
-            cache[idx_for_push] = flat_frame; //mute while adding new frame into cache
+        else//load the frame
+        {
+            sleep(interval);//simulate loading
+            cache[idx_for_push] = flat_frame;
             idx_for_push = (idx_for_push+1) % cache_capacity;
             cache_size++;
-            pthread_mutex_unlock(&a_mutex);
+            sem_post(&can_take);//notify transformer that there are frames
+            
+            if (is_debugging) {
+                int temp;
+                sem_getvalue(&can_take, &temp);
+                printf("cache size from CAMERA is: %d, and can_take value is: %d \n", cache_size, temp);
+            }
+            
+            if (lock_needed)
+                pthread_mutex_unlock(&a_mutex);
         }
     }
     //finally exit
     pthread_exit(NULL);
 }
 
-void* quantizer_method(void *arg)
+void* transformer_method(void* args)
 {
+    int my_temp_id = rand()%2;
     if (is_debugging) {
-        cout<<endl<<"quantizer thread started"<<endl;
+        cout<<endl<<"transformer thread started"<<endl;
     }
-    int num_tries = 0;
-    while (num_tries++ < num_max_retries) //exit waiting for too long
+    
+    while (1)
     {
-        if (cache_size > 0) { //if the cache is not empty
-            
-            num_tries = 0;
-            bool lock_needed = (idx_for_pop == idx_for_push);
-            if (lock_needed)
-                pthread_mutex_lock(&a_mutex);
-            pthread_mutex_lock(&q_mutex);
-            //push frame into cache
-            double* frame_to_quantize = cache[idx_for_pop];
-            idx_for_pop = (idx_for_pop + 1) % cache_capacity;
-            cache_size--;
-            // quantization
-            for (int i = 0; i<flat_frame_size; i++)
-                frame_to_quantize[i] > 0.5 ? cout << "1.0 " : cout << "0.0 ";
-            cout<<endl;
-            //unlock
-            if (is_debugging) {
-                cout<<"using sem post"<<endl;
-            }
-            sem_post(&can_add);
-            
-            if (is_debugging) {
-                int temp;
-                sem_getvalue(&can_add, &temp);
-                cout<<"semaphore value after posting is"<< temp <<endl;
-            }
-            
-            if (cache_size == cache_capacity - 1) {
-                
-            }
-            
-            pthread_mutex_unlock(&q_mutex);
-            if (lock_needed)
-                pthread_mutex_unlock(&a_mutex);
-            sleep(3);//simulate quantization
+        if (is_cam_exited && cache_size == 0) //all frame processed
+        {
+            cout<<"\n\n ********************Transformer Exited***************** \n\n"<<endl;
+            pthread_exit(NULL);
         }
-        else
-            sleep(1);
+        if (is_debugging)
+        {
+            int temp;
+            sem_getvalue(&can_take, &temp);
+            printf("can_take value in TRANSF (id: %d) BEFORE WAIT is: %d \n", my_temp_id, temp);
+        }
+        
+        sem_wait(&can_take);//wait for frame to be available
+        
+        if (is_debugging)
+        {
+            int temp;
+            sem_getvalue(&can_take, &temp);
+            printf("can take value in TRANSF (id: %d) AFTER WAIT is: %d \n",my_temp_id, temp);
+        }
+        
+        bool lock_needed = (idx_for_pop == idx_for_push);
+        if (lock_needed)
+            pthread_mutex_lock(&a_mutex);
+//        pthread_mutex_lock(&q_mutex);
+        //push frame into cache
+        double* frame_to_quantize = cache[idx_for_pop];
+        idx_for_pop = (idx_for_pop + 1) % cache_capacity;
+        cache_size--;
+        // quantization
+        for (int i = 0; i<flat_frame_size; i++)
+            frame_to_quantize[i] > 0.5 ? cout << "1.cis " : cout << "0.trans ";
+        cout<<endl;
+        sleep(3);//simulate quantization
+        
+        if (is_cam_waiting) {
+            sem_post(&can_add);//notify camera that there is empty cell
+        }
+        
+        if (is_debugging) {
+            int temp;
+            sem_getvalue(&can_add, &temp);
+            printf("AFTER CONDITIONAL POST can_add value (trID: %d) is: %d and cache_size is: %d \n",my_temp_id,temp, cache_size);
+        }
+        
+        //unlock
+//        pthread_mutex_unlock(&q_mutex);
+        if (lock_needed)
+            pthread_mutex_unlock(&a_mutex);
     }
-    pthread_exit(NULL);
 }
 
 
@@ -156,6 +176,7 @@ int main(int argc, char** argv)
     pthread_mutex_init(&a_mutex, NULL);
     pthread_mutex_init(&q_mutex, NULL);
     sem_init(&can_add, 0, 0);
+    sem_init(&can_take, 0, 0);
     pthread_t threads[3];
 
     //start camera thread
@@ -163,32 +184,22 @@ int main(int argc, char** argv)
         cout << "Error when creating thread!" << endl;
         exit(-1);
     }
-    //start quantizer_01 thread
-    if (pthread_create(&threads[1], NULL, quantizer_method, NULL)){
-        cout << "Error when creating quantizer_01 thread!" << endl;
+    //start transformer
+    if (pthread_create(&threads[1], NULL, transformer_method, NULL)){
+        cout << "Error when creating transformer_01 thread!" << endl;
         exit(-1);
     }
-    //start quantizer_02 thread
-    if (pthread_create(&threads[2], NULL, quantizer_method, NULL)){
-        cout << "Error when creating quantizer_02 thread!" << endl;
-        exit(-1);
-    }
-
     //wait until camera thread has finished
     if ( pthread_join(threads[0], NULL) ) {
         cout << "Error when camera joining thread!" << endl;
         exit(-1);
     }
-    //wait until quatizer_01 thread has finished
+    //wait until trans thread has finished
     if ( pthread_join(threads[1], NULL) ) {
-        cout << "Error when quatizer_01 joining thread!" << endl;
+        cout << "Error when transf_01 joining thread!" << endl;
         exit(-1);
     }
-    //wait until quatizer_02 thread has finished
-    if ( pthread_join(threads[2], NULL) ) {
-        cout << "Error when quatizer_02 joining thread!" << endl;
-        exit(-1);
-    }
+    
     //finally exit
     pthread_exit(NULL);
 }
@@ -199,3 +210,4 @@ bool is_number(string s)
     while (it != s.end() && isdigit(*it)) ++it;
     return !s.empty() && it == s.end();
 }
+
