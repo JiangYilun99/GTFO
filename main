@@ -15,7 +15,7 @@
 using namespace std;
 
 pthread_mutex_t a_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t q_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t t_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 sem_t can_add;
 sem_t can_take;
@@ -93,7 +93,7 @@ void* camera_method(void *arg)
             if (is_debugging) {
                 int temp;
                 sem_getvalue(&can_take, &temp);
-                printf("cache size from CAMERA is: %d, and can_take value is: %d \n", cache_size, temp);
+                // printf("cache size from CAMERA is: %d, and can_take value is: %d \n", cache_size, temp);
             }
 
             if (lock_needed)
@@ -113,6 +113,7 @@ void* transformer_method(void* args)
 
     while (1)
     {
+        
         if (is_cam_exited && cache_size == 0) //all frame processed
         {
             cout<<"\n\n ********************Transformer Exited***************** \n\n"<<endl;
@@ -122,7 +123,7 @@ void* transformer_method(void* args)
         {
             int temp;
             sem_getvalue(&can_take, &temp);
-            printf("can_take value in TRANSF (id: %d) BEFORE WAIT is: %d \n", my_temp_id, temp);
+            // printf("can_take value in TRANSF (id: %d) BEFORE WAIT is: %d \n", my_temp_id, temp);
         }
 
         sem_wait(&can_take);//wait for frame to be available
@@ -131,7 +132,7 @@ void* transformer_method(void* args)
         {
             int temp;
             sem_getvalue(&can_take, &temp);
-            printf("can take value in TRANSF (id: %d) AFTER WAIT is: %d \n",my_temp_id, temp);
+            // printf("can take value in TRANSF (id: %d) AFTER WAIT is: %d \n",my_temp_id, temp);
         }
 
         bool lock_needed = (idx_for_pop == idx_for_push);
@@ -139,12 +140,14 @@ void* transformer_method(void* args)
             pthread_mutex_lock(&a_mutex);
 //        pthread_mutex_lock(&q_mutex);
         //push frame into cache
-        sem_wait(&trans_est);
+
          frame_to_quantize = cache[idx_for_pop];
-        idx_for_pop = (idx_for_pop + 1) % cache_capacity;
+
         cache_size--;
         // quantization
+        pthread_mutex_lock(&t_mutex);
         for (int i = 0; i<flat_frame_size; i++){
+            // cout<<"before "<<frame_to_quantize[i]<<endl;
             double temp = frame_to_quantize[i];
             double increase= 10*temp;
             double r = (int)increase;
@@ -154,44 +157,60 @@ void* transformer_method(void* args)
             else{
                 frame_to_quantize[i]=(double)(r)/10;
             }
+            // cout<<"after "<<frame_to_quantize[i]<<endl;
         }
         cout<<endl;
         sleep(3);//simulate quantization
         sem_post(&trans_est);
-
+        
+        pthread_mutex_unlock(&t_mutex);
 
 
         if (is_debugging) {
             int temp;
             sem_getvalue(&can_add, &temp);
-            printf("AFTER CONDITIONAL POST can_add value (trID: %d) is: %d and cache_size is: %d \n",my_temp_id,temp, cache_size);
+            // printf("AFTER CONDITIONAL POST can_add value (trID: %d) is: %d and cache_size is: %d \n",my_temp_id,temp, cache_size);
         }
 
         //unlock
 //        pthread_mutex_unlock(&q_mutex);
         if (lock_needed)
             pthread_mutex_unlock(&a_mutex);
+        
     }
 }
 void* estimator_method(void* args){
+    
     if (is_debugging) {
         cout<<endl<<"estimator thread started"<<endl;
     }
     while (1) {
+        if (is_cam_exited && cache_size == 0) //all frame processed
+        {
+            cout<<"\n\n ********************Estimator Excited***************** \n\n"<<endl;
+            pthread_exit(NULL);
+        }
+        cout<<"+++++++++++++++++++++++++++++++++++"<<endl;
         sem_wait(&trans_est);
+        cout<<"------------------after sem wait----------------------"<<endl;
+        pthread_mutex_lock(&t_mutex);
+        cout<<"------------------mutex lock----------------------"<<endl;
         double sum=0;
+        cout<<"!!!!!!!!!!!!!!!!!!!!!"<<sum<<"!!!!!!!!!!!!!!!!!!!!!!!!!!!!"<<endl;
         for(int i=0;i<flat_frame_size;i++){
             double * temp=cache[idx_for_pop];
-             sum+=sqrt(temp[i]-frame_to_quantize[i]);
+             sum+=pow(temp[i]-frame_to_quantize[i],2);
+             cout<<sum<<endl;
         }
         sum=sum/flat_frame_size;
-        cout<<"mse = "<<sum;
-        idx_for_pop++;
+        cout<<"mse = "<<sum<<endl;
+        idx_for_pop = (idx_for_pop + 1) % cache_capacity;
         cache_size--;
-        sem_post(&trans_est);
+
         if (is_cam_waiting) {
             sem_post(&can_add);//notify camera that there is empty cell
         }
+        pthread_mutex_unlock(&t_mutex);
 
     }
     pthread_exit(NULL);
@@ -215,7 +234,7 @@ int main(int argc, char** argv)
 
     //input is legal
     pthread_mutex_init(&a_mutex, NULL);
-    pthread_mutex_init(&q_mutex, NULL);
+    pthread_mutex_init(&t_mutex, NULL);
     sem_init(&can_add, 0, 0);
     sem_init(&can_take, 0, 0);
     sem_init(&trans_est,0,0);
@@ -262,3 +281,4 @@ bool is_number(string s)
     while (it != s.end() && isdigit(*it)) ++it;
     return !s.empty() && it == s.end();
 }
+ 
